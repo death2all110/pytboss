@@ -139,3 +139,6 @@ pytboss/_version.py
 
 # Debugging and credentials
 .pitboss/
+
+# VS Code
+.vs/

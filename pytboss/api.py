@@ -54,6 +54,11 @@ class PitBoss:
         self._last_uptime: float | None = None
         self._last_uptime_check: int | None = None
 
+        if device_id.startswith("GRILLS"):
+            _LOGGER.info("Detected Generic/Taylor Controller")
+            self._impl = GenericGrill(address=device_address)
+            return
+
     def is_connected(self) -> bool:
         """Returns whether we are actively connected to the grill."""
         return self._conn.is_connected()
