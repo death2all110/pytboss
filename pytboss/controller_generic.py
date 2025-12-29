@@ -4,21 +4,6 @@ from .transport_generic import GenericBleTransport
 
 _LOGGER = logging.getLogger(__name__)
 
-# --- THE MAPPING TASK ---
-# We know 4=340, 5=350. 
-# You need to fill in the rest by testing!
-TEMP_INDEX_MAP = {
-    # TempF: Index (Hex)
-    # SMOKE: 0x01, # Guess?
-    # 200:   0x02, # Guess?
-    # 225:   0x03, # Guess?
-    340:     0x04, # CONFIRMED
-    350:     0x05, # CONFIRMED
-    # 400:   0x06, # Guess?
-    # 450:   0x07, # Guess?
-    500:     0xFF, # Special case handled in logic below
-}
-
 class GenericGrill:
     def __init__(self, address: str):
         self.transport = GenericBleTransport(address)
@@ -32,25 +17,36 @@ class GenericGrill:
         await self.transport.disconnect()
 
     async def set_temp(self, temp_f: int):
+        """Sets the target temperature using the Linear 5 formula."""
         cmd = None
         
         # 1. Handle "High" / 500F Mode
+        # This uses a specific "Power Mode" command rather than a temp index
         if temp_f >= 500:
-            # Power Mode 5 (High) identified in logs
+            _LOGGER.info("Setting max temp (High/500F)")
             cmd = "fa09fe0501050000ff"
             
-        # 2. Handle Standard Temps via Index
-        elif temp_f in TEMP_INDEX_MAP:
-            index = TEMP_INDEX_MAP[temp_f]
+        # 2. Handle Standard Temps (180F - 495F)
+        # Formula: Index = (TargetTemp - 180) / 5
+        elif temp_f >= 180:
+            # Calculate the dial index
+            index = int((temp_f - 180) // 5)
+            
+            # Safety check to ensure we don't overflow the byte
+            if index > 255:
+                _LOGGER.error(f"Calculated index {index} exceeds limit. Temp {temp_f}F too high.")
+                return
+
             # Structure: FA 09 FE 05 01 03 [Index] [P-Set=00] FF
+            # 350F example: (350-180)/5 = 34 (0x22) -> fa09fe0501032200ff
             cmd = f"fa09fe050103{index:02x}00ff"
             
         else:
-            _LOGGER.warning(f"Temp {temp_f}F not in lookup table. Using default index 01.")
-            cmd = "fa09fe0501030100ff"
+            _LOGGER.warning(f"Temp {temp_f}F is below the minimum supported 180F.")
+            return
 
         if cmd:
-            _LOGGER.info(f"Setting temp to {temp_f}F (Cmd: {cmd})")
+            _LOGGER.info(f"Setting temp to {temp_f}F (Hex Index: {int((temp_f - 180) // 5) if temp_f < 500 else 'High'})")
             await self.transport.send_command(cmd)
 
     async def _on_data(self, data):
@@ -63,16 +59,17 @@ class GenericGrill:
             state['p1_temp'] = int(curr_raw / 10.0)
             
             # Set Temp (Bytes 22-23, Celsius Integer)
+            # The grill reports the set temp in Celsius, we convert back to F for display
             set_c = (data[22] << 8) | data[23]
             state['set_temp'] = int((set_c * 9/5) + 32)
             
-            # Basic Status (Grill is On)
+            # Basic Status
             state['module_is_on'] = True
             
             # Update internal state
             self._state.update(state)
             
-            # Print for debugging
+            # Optional: Print for debugging
             # print(f"Grill Status: {state}")
 
     def get_state(self):
