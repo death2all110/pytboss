@@ -11,18 +11,20 @@ class GenericBleTransport:
     UUID_WRITE  = "0000abf1-0000-1000-8000-00805f9b34fb"
     UUID_NOTIFY = "0000abf2-0000-1000-8000-00805f9b34fb"
 
-    def __init__(self, address: str):
-        self._address = address
+    def __init__(self, ble_device):
+        """Initialize with a BLEDevice object, not just a string."""
+        self._device = ble_device
+        self._address = ble_device.address
         self._client = None
         self._callback = None
 
     async def connect(self):
         _LOGGER.debug(f"Connecting to {self._address}...")
         
-        # Use the retry connector to avoid warnings and improve stability
+        # Pass the full device object (self._device), not the address string!
         self._client = await bleak_retry_connector.establish_connection(
             client_class=BleakClientWithServiceCache,
-            device=self._address, # It can accept an address string
+            device=self._device, 
             name=self._address,
             disconnected_callback=self._on_disconnected,
         )

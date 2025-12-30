@@ -59,20 +59,19 @@ class PitBoss:
 
         # Check for Generic Model
         if grill_model == "Generic":
-            # We need the address from the transport to init GenericGrill
-            # Assuming conn has a _ble_device property (standard in pytboss)
-            device_address = conn._ble_device.address if hasattr(conn, "_ble_device") else None
+            # Extract the FULL DEVICE OBJECT, not just the address
+            ble_device = conn._ble_device if hasattr(conn, "_ble_device") else None
             
-            if device_address:
-                _LOGGER.info(f"Initializing Generic/Taylor Controller for {device_address}")
-                self._impl = GenericGrill(device_address)
+            if ble_device:
+                _LOGGER.info(f"Initializing Generic/Taylor Controller for {ble_device.address}")
+                # Pass the object to the driver
+                self._impl = GenericGrill(ble_device)
                 self._impl.register_callback(self._on_generic_state_received)
                 
-                # Mock a spec so other parts of the app don't crash accessing attributes
                 self.spec = Grill(name="Generic", control_board=None, min_temp=180, max_temp=500, temp_increments=[5])
                 return
             else:
-                _LOGGER.error("Could not determine device address for Generic controller")
+                _LOGGER.error("Could not determine BLE device object for Generic controller")
 
         # Standard Initialization
         self.spec: Grill = get_grill(grill_model)

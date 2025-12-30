@@ -5,8 +5,9 @@ from .transport_generic import GenericBleTransport
 _LOGGER = logging.getLogger(__name__)
 
 class GenericGrill:
-    def __init__(self, address: str):
-        self.transport = GenericBleTransport(address)
+    def __init__(self, ble_device):
+        # Pass the device object to the transport
+        self.transport = GenericBleTransport(ble_device)
         self.transport.subscribe(self._on_data)
         self._state = {}
         self._callback = None
@@ -37,23 +38,18 @@ class GenericGrill:
     async def _on_data(self, data):
         state = {}
         
-        # Parse Status Packet (FA 1A...)
         if len(data) >= 26 and data[0] == 0xFA and data[1] == 0x1A:
-            # Current Temp (Bytes 8-9)
             curr_raw = (data[8] << 8) | data[9]
             
-            # --- MAP TO HOME ASSISTANT KEYS ---
-            # HA looks for 'smokerActTemp', 'grillSetTemp', 'moduleIsOn'
+            # Map to Home Assistant Keys
             temp_f = int(curr_raw / 10.0)
             state['smokerActTemp'] = temp_f 
             state['p1Temp'] = temp_f
             
-            # Set Temp (Bytes 22-23)
             set_c = (data[22] << 8) | data[23]
             state['grillSetTemp'] = int((set_c * 9/5) + 32)
             
             state['moduleIsOn'] = True
-            # ----------------------------------
             
             self._state.update(state)
             
