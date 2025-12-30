@@ -44,7 +44,6 @@ class PitBoss:
         """
         self.fs = FileSystem(conn)
         self.config = Config(conn)
-        self.spec: Grill = get_grill(grill_model)
         self._conn = conn
         self._conn.set_state_callback(self._on_state_received)
         self._conn.set_vdata_callback(self._on_vdata_received)
@@ -76,7 +75,7 @@ class PitBoss:
                 _LOGGER.error("Could not determine device address for Generic controller")
 
         # Standard Initialization
-        self.spec = get_grill(grill_model)
+        self.spec: Grill = get_grill(grill_model)
         self._conn.set_state_callback(self._on_state_received)
         self._conn.set_vdata_callback(self._on_vdata_received)
 
