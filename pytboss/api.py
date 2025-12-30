@@ -11,7 +11,8 @@ from .codec import encode, timed_key
 from .config import Config
 from .exceptions import UnsupportedOperation
 from .fs import FileSystem
-from .grills import Grill, StateDict, get_grill
+# --- CHANGED: Added ControlBoard to imports ---
+from .grills import ControlBoard, Grill, StateDict, get_grill
 from .transport import Transport
 
 from .controller_generic import GenericGrill
@@ -35,18 +36,10 @@ class PitBoss:
     """Configuration operations."""
 
     def __init__(self, conn: Transport, grill_model: str, password: str = "") -> None:
-        """Initializes the class.
-
-        :param conn: Connection transport for the grill.
-        :param grill_model: The grill model. This is necessary to determine all
-            supported commands and cannot be determined automatically.
-        :param password: The grill password.
-        """
+        """Initializes the class."""
         self.fs = FileSystem(conn)
         self.config = Config(conn)
         self._conn = conn
-        self._conn.set_state_callback(self._on_state_received)
-        self._conn.set_vdata_callback(self._on_vdata_received)
         self._password = password.encode("utf-8")
         self._lock = asyncio.Lock()  # protects callbacks and state.
         self._state_callbacks: list[StateCallback] = []
@@ -55,26 +48,41 @@ class PitBoss:
         self._last_uptime: float | None = None
         self._last_uptime_check: int | None = None
 
-        self._impl = None # Holder for the Generic driver
+        # --- GENERIC CONTROLLER LOGIC ---
+        self._impl = None 
 
-        # Check for Generic Model
         if grill_model == "Generic":
-            # Extract the FULL DEVICE OBJECT, not just the address
             ble_device = conn._ble_device if hasattr(conn, "_ble_device") else None
             
             if ble_device:
                 _LOGGER.info(f"Initializing Generic/Taylor Controller for {ble_device.address}")
-                # Pass the object to the driver
                 self._impl = GenericGrill(ble_device)
                 self._impl.register_callback(self._on_generic_state_received)
                 
-                self.spec = Grill(name="Generic", control_board=None, min_temp=180, max_temp=500, temp_increments=[5])
+                # --- FIXED: Create a Dummy ControlBoard ---
+                # This prevents 'AttributeError: NoneType has no attribute commands'
+                dummy_board = ControlBoard(
+                    name="Generic",
+                    commands={},  # Empty commands = disable unsupported entities safely
+                    _status_js_func=None,
+                    _temperatures_js_func=None
+                )
+                
+                self.spec = Grill(
+                    name="Generic", 
+                    control_board=dummy_board, 
+                    min_temp=180, 
+                    max_temp=500, 
+                    temp_increments=[5]
+                )
                 return
             else:
                 _LOGGER.error("Could not determine BLE device object for Generic controller")
+        # --------------------------------
 
         # Standard Initialization
         self.spec: Grill = get_grill(grill_model)
+        
         self._conn.set_state_callback(self._on_state_received)
         self._conn.set_vdata_callback(self._on_vdata_received)
 
@@ -83,10 +91,7 @@ class PitBoss:
         return self._conn.is_connected()
 
     async def start(self) -> None:
-        """Sets up the API for use.
-
-        Required to be called before the API can be used.
-        """
+        """Sets up the API for use."""
         if self._impl:
             await self._impl.start()
         else:
@@ -110,20 +115,12 @@ class PitBoss:
                     callback(self._state)
 
     async def subscribe_state(self, callback: StateCallback):
-        """Registers a callback to receive grill state updates.
-
-        :param callback: Callback function that will receive updated grill state.
-        """
-        # TODO: Return a handle for unsubscribe.
+        """Registers a callback to receive grill state updates."""
         async with self._lock:
             self._state_callbacks.append(callback)
 
     async def subscribe_vdata(self, callback: VDataCallback):
-        """Registers a callback to receive VData updates.
-
-        :param callback: Callback function that will receive updated VData.
-        """
-        # TODO: Return a handle for unsubscribe.
+        """Registers a callback to receive VData updates."""
         async with self._lock:
             self._vdata_callbacks.append(callback)
 
@@ -146,14 +143,11 @@ class PitBoss:
                 state.update(new_state)
 
         if not state:
-            # Unknown or invalid payload; ignore.
             _LOGGER.debug("Could not parse state payload")
             return
 
         async with self._lock:
             self._state.update(state)
-            # TODO: Run callbacks concurrently
-            # TODO: Send copies of state so subscribers can't modify it
             for callback in self._state_callbacks:
                 if inspect.iscoroutinefunction(callback):
                     await callback(self._state)
@@ -164,8 +158,6 @@ class PitBoss:
         vdata = json.loads(payload)
         _LOGGER.debug("VData received: %s", vdata)
         async with self._lock:
-            # TODO: Run callbacks concurrently
-            # TODO: Send copies of state so subscribers can't modify it
             for callback in self._vdata_callbacks:
                 if inspect.iscoroutinefunction(callback):
                     await callback(vdata)
@@ -189,10 +181,7 @@ class PitBoss:
         return await self._send_hex_command(cmd(*args))
 
     async def set_grill_password(self, new_password: str) -> None:
-        """Sets the grill password.
-
-        :param new_password: The new password to set.
-        """
+        """Sets the grill password."""
         new_password_bytes = new_password.encode("utf-8")
         await self._conn.send_command(
             "PB.SetDevicePassword",
@@ -201,15 +190,11 @@ class PitBoss:
         self._password = new_password_bytes
 
     async def set_grill_temperature(self, temp: int) -> dict:
-        """Sets the target grill temperature.
-
-        :param temp: Target grill temperature.
-        """
+        """Sets the target grill temperature."""
         if self._impl:
             await self._impl.set_temp(temp)
             return {}
 
-        # TODO: Clamp to a value from self.spec.temp_increments.
         if self.spec.max_temp:
             temp = min(temp, self.spec.max_temp)
         if self.spec.min_temp:
@@ -217,19 +202,11 @@ class PitBoss:
         return await self._send_command("set-temperature", temp)
 
     async def set_probe_temperature(self, temp: int) -> dict:
-        """Sets the target temperature for probe 1.
-
-        :param temp: Target probe temperature.
-        """
+        """Sets the target temperature for probe 1."""
         return await self._send_command("set-probe-1-temperature", temp)
 
     async def set_probe_2_temperature(self, temp: int) -> dict:
-        """Sets the target temperature for probe 2.
-
-        :param temp: Target probe temperature.
-        :raise pyschlage.exceptions.UnsupportedOperation: When probe 2's
-            target temperature cannot be set.
-        """
+        """Sets the target temperature for probe 2."""
         cmd = "set-probe-2-temperature"
         if cmd not in self.spec.control_board.commands:
             raise UnsupportedOperation
@@ -261,10 +238,8 @@ class PitBoss:
 
     async def get_state(self) -> StateDict:
         """Retrieves the current grill state."""
-        # --- NEW: Use Generic Driver State if active ---
         if self._impl:
             return self._impl.get_state()
-        # -----------------------------------------------
 
         resp = await self._conn.send_command(
             "PB.GetState", await self._authenticate({})
@@ -313,8 +288,5 @@ class PitBoss:
         return self._last_uptime
 
     async def ping(self, timeout: float | None = None) -> dict:
-        """Pings the device.
-
-        :param timeout: Time (in seconds) after which to abandon the RPC.
-        """
+        """Pings the device."""
         return await self._conn.send_command("RPC.Ping", {}, timeout=timeout)
