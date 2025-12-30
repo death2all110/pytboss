@@ -23,7 +23,7 @@ class GenericGrill:
         # NEW: Wait up to 15 seconds for the first packet
         _LOGGER.debug("Waiting for first data packet...")
         try:
-            await asyncio.wait_for(self._first_data_received.wait(), timeout=15.0)
+            await asyncio.wait_for(self._first_data_received.wait(), timeout=40.0)
             _LOGGER.info("Initial data received!")
         except asyncio.TimeoutError:
             _LOGGER.warning("Connected, but no data received within timeout.")
