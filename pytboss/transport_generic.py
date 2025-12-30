@@ -7,7 +7,7 @@ _LOGGER = logging.getLogger(__name__)
 
 class GenericBleTransport:
     """Transport for generic (Taylor/Smarter Grill) controllers."""
-    
+    UUID_SERVICE ="0000abf0-0000-1000-8000-00805f9b34fb"
     UUID_WRITE  = "0000abf1-0000-1000-8000-00805f9b34fb"
     UUID_NOTIFY = "0000abf2-0000-1000-8000-00805f9b34fb"
 
@@ -28,9 +28,17 @@ class GenericBleTransport:
             name=self._address,
             disconnected_callback=self._on_disconnected,
         )
-        
+
         await self._client.start_notify(self.UUID_NOTIFY, self._on_data)
         _LOGGER.info("Connected to Generic Grill")
+
+        await self._client.start_notify(UUID_NOTIFY, self._handle_notification)
+        _LOGGER.debug("Notifications enabled on %s", UUID_NOTIFY)
+
+        poke_command = bytes.fromhex("fa06fe0b01ff")
+
+        await self._client.write_gatt_char(UUID_WRITE, poke_command, response=False)
+        _LOGGER.debug("Sent poke command: %s", poke_command.hex())
 
     async def disconnect(self):
         if self._client:
