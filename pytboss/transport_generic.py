@@ -30,10 +30,7 @@ class GenericBleTransport:
         )
 
         await self._client.start_notify(self.UUID_NOTIFY, self._on_data)
-        _LOGGER.info("Connected to Generic Grill")
-
-        await self._client.start_notify(self.UUID_NOTIFY, self._handle_notification)
-        _LOGGER.debug("Notifications enabled on %s", self.UUID_NOTIFY)
+        _LOGGER.info("Connected to Generic Grill and Notifications enabled on %s")
 
         poke_command = bytes.fromhex("fa06fe0b01ff")
 
