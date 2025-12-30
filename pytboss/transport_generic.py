@@ -32,12 +32,12 @@ class GenericBleTransport:
         await self._client.start_notify(self.UUID_NOTIFY, self._on_data)
         _LOGGER.info("Connected to Generic Grill")
 
-        await self._client.start_notify(UUID_NOTIFY, self._handle_notification)
-        _LOGGER.debug("Notifications enabled on %s", UUID_NOTIFY)
+        await self._client.start_notify(self.UUID_NOTIFY, self._handle_notification)
+        _LOGGER.debug("Notifications enabled on %s", self.UUID_NOTIFY)
 
         poke_command = bytes.fromhex("fa06fe0b01ff")
 
-        await self._client.write_gatt_char(UUID_WRITE, poke_command, response=False)
+        await self._client.write_gatt_char(self.UUID_WRITE, poke_command, response=False)
         _LOGGER.debug("Sent poke command: %s", poke_command.hex())
 
     async def disconnect(self):
