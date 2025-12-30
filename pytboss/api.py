@@ -262,6 +262,11 @@ class PitBoss:
 
     async def get_state(self) -> StateDict:
         """Retrieves the current grill state."""
+        # --- NEW: Use Generic Driver State if active ---
+        if self._impl:
+            return self._impl.get_state()
+        # -----------------------------------------------
+
         resp = await self._conn.send_command(
             "PB.GetState", await self._authenticate({})
         )

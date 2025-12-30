@@ -1,12 +1,13 @@
 import logging
 from bleak import BleakClient
+import bleak_retry_connector
+from bleak_retry_connector import BleakClientWithServiceCache
 
 _LOGGER = logging.getLogger(__name__)
 
 class GenericBleTransport:
     """Transport for generic (Taylor/Smarter Grill) controllers."""
     
-    # UUIDs identified from your logs
     UUID_WRITE  = "0000abf1-0000-1000-8000-00805f9b34fb"
     UUID_NOTIFY = "0000abf2-0000-1000-8000-00805f9b34fb"
 
@@ -17,8 +18,15 @@ class GenericBleTransport:
 
     async def connect(self):
         _LOGGER.debug(f"Connecting to {self._address}...")
-        self._client = BleakClient(self._address)
-        await self._client.connect()
+        
+        # Use the retry connector to avoid warnings and improve stability
+        self._client = await bleak_retry_connector.establish_connection(
+            client_class=BleakClientWithServiceCache,
+            device=self._address, # It can accept an address string
+            name=self._address,
+            disconnected_callback=self._on_disconnected,
+        )
+        
         await self._client.start_notify(self.UUID_NOTIFY, self._on_data)
         _LOGGER.info("Connected to Generic Grill")
 
@@ -26,6 +34,9 @@ class GenericBleTransport:
         if self._client:
             await self._client.disconnect()
             self._client = None
+
+    def _on_disconnected(self, client):
+        _LOGGER.debug("Generic Grill Disconnected")
 
     def subscribe(self, callback):
         self._callback = callback
@@ -39,7 +50,6 @@ class GenericBleTransport:
             _LOGGER.error("Not connected, cannot send command")
             return
         
-        # Convert hex string to bytes
         data = bytes.fromhex(hex_cmd)
         _LOGGER.debug(f"Sending: {data.hex()}")
         await self._client.write_gatt_char(self.UUID_WRITE, data)
