@@ -9,6 +9,11 @@ class GenericGrill:
         self.transport = GenericBleTransport(address)
         self.transport.subscribe(self._on_data)
         self._state = {}
+        self._callback = None  # Add callback storage
+
+    def register_callback(self, callback):
+        """Registers a callback for state updates."""
+        self._callback = callback
 
     async def start(self):
         await self.transport.connect()
@@ -54,23 +59,25 @@ class GenericGrill:
         
         # Parse Status Packet (FA 1A...)
         if len(data) >= 26 and data[0] == 0xFA and data[1] == 0x1A:
-            # Current Temp (Bytes 8-9, F*10)
+            # Current Temp (Bytes 8-9)
             curr_raw = (data[8] << 8) | data[9]
-            state['p1_temp'] = int(curr_raw / 10.0)
+            state['p1Temp'] = int(curr_raw / 10.0)  # Changed to p1Temp (CamelCase)
+            state['smokerActTemp'] = state['p1Temp'] # Map to smokerActTemp as well
             
-            # Set Temp (Bytes 22-23, Celsius Integer)
-            # The grill reports the set temp in Celsius, we convert back to F for display
+            # Set Temp (Bytes 22-23)
             set_c = (data[22] << 8) | data[23]
-            state['set_temp'] = int((set_c * 9/5) + 32)
+            state['grillSetTemp'] = int((set_c * 9/5) + 32) # Changed to grillSetTemp
             
-            # Basic Status
-            state['module_is_on'] = True
+            state['moduleIsOn'] = True # Changed to moduleIsOn
             
-            # Update internal state
             self._state.update(state)
             
-            # Optional: Print for debugging
-            # print(f"Grill Status: {state}")
+            # Fire the callback to notify api.py
+            if self._callback:
+                if asyncio.iscoroutinefunction(self._callback):
+                    await self._callback(self._state)
+                else:
+                    self._callback(self._state)
 
     def get_state(self):
         return self._state

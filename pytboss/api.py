@@ -14,6 +14,8 @@ from .fs import FileSystem
 from .grills import Grill, StateDict, get_grill
 from .transport import Transport
 
+from .controller_generic import GenericGrill
+
 _LOGGER = logging.getLogger("pytboss")
 
 StateCallback = Callable[[StateDict], Awaitable[None] | None]
@@ -54,10 +56,29 @@ class PitBoss:
         self._last_uptime: float | None = None
         self._last_uptime_check: int | None = None
 
-        if device_id.startswith("GRILLS"):
-            _LOGGER.info("Detected Generic/Taylor Controller")
-            self._impl = GenericGrill(address=device_address)
-            return
+        self._impl = None # Holder for the Generic driver
+
+        # Check for Generic Model
+        if grill_model == "Generic":
+            # We need the address from the transport to init GenericGrill
+            # Assuming conn has a _ble_device property (standard in pytboss)
+            device_address = conn._ble_device.address if hasattr(conn, "_ble_device") else None
+            
+            if device_address:
+                _LOGGER.info(f"Initializing Generic/Taylor Controller for {device_address}")
+                self._impl = GenericGrill(device_address)
+                self._impl.register_callback(self._on_generic_state_received)
+                
+                # Mock a spec so other parts of the app don't crash accessing attributes
+                self.spec = Grill(name="Generic", control_board=None, min_temp=180, max_temp=500, temp_increments=[5])
+                return
+            else:
+                _LOGGER.error("Could not determine device address for Generic controller")
+
+        # Standard Initialization
+        self.spec = get_grill(grill_model)
+        self._conn.set_state_callback(self._on_state_received)
+        self._conn.set_vdata_callback(self._on_vdata_received)
 
     def is_connected(self) -> bool:
         """Returns whether we are actively connected to the grill."""
@@ -68,11 +89,27 @@ class PitBoss:
 
         Required to be called before the API can be used.
         """
-        await self._conn.connect()
+        if self._impl:
+            await self._impl.start()
+        else:
+            await self._conn.connect()
 
     async def stop(self) -> None:
         """Stops any background polling."""
-        await self._conn.disconnect()
+        if self._impl:
+            await self._impl.stop()
+        else:
+            await self._conn.disconnect()
+
+    async def _on_generic_state_received(self, state_data):
+        """Callback for the Generic driver."""
+        async with self._lock:
+            self._state.update(state_data)
+            for callback in self._state_callbacks:
+                if inspect.iscoroutinefunction(callback):
+                    await callback(self._state)
+                else:
+                    callback(self._state)
 
     async def subscribe_state(self, callback: StateCallback):
         """Registers a callback to receive grill state updates.
@@ -170,6 +207,10 @@ class PitBoss:
 
         :param temp: Target grill temperature.
         """
+        if self._impl:
+            await self._impl.set_temp(temp)
+            return {}
+
         # TODO: Clamp to a value from self.spec.temp_increments.
         if self.spec.max_temp:
             temp = min(temp, self.spec.max_temp)
