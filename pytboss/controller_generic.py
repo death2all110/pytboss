@@ -6,17 +6,27 @@ _LOGGER = logging.getLogger(__name__)
 
 class GenericGrill:
     def __init__(self, ble_device):
-        # Pass the device object to the transport
         self.transport = GenericBleTransport(ble_device)
         self.transport.subscribe(self._on_data)
         self._state = {}
         self._callback = None
+        # NEW: Event to track if we have received data
+        self._first_data_received = asyncio.Event()
 
     def register_callback(self, callback):
         self._callback = callback
 
     async def start(self):
+        """Connect and wait for the first data packet."""
         await self.transport.connect()
+        
+        # NEW: Wait up to 15 seconds for the first packet
+        _LOGGER.debug("Waiting for first data packet...")
+        try:
+            await asyncio.wait_for(self._first_data_received.wait(), timeout=15.0)
+            _LOGGER.info("Initial data received!")
+        except asyncio.TimeoutError:
+            _LOGGER.warning("Connected, but no data received within timeout.")
 
     async def stop(self):
         await self.transport.disconnect()
@@ -52,6 +62,10 @@ class GenericGrill:
             state['moduleIsOn'] = True
             
             self._state.update(state)
+            
+            # NEW: Signal that we have data
+            if not self._first_data_received.is_set():
+                self._first_data_received.set()
             
             if self._callback:
                 if asyncio.iscoroutinefunction(self._callback):
